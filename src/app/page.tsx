@@ -53,7 +53,8 @@ const ICON: Record<string, string> = {
   CLOUDY: '☁️', OVERCAST: '☁️', FOG: '🌫️', LIGHT_RAIN: '🌦️', RAIN: '🌧️',
   HEAVY_RAIN: '🌧️', THUNDERSTORM: '⛈️', LIGHT_SNOW: '🌨️', SNOW: '❄️',
   HEAVY_SNOW: '❄️', BLIZZARD: '❄️', HAIL: '🧊', ICE: '🧊',
-  SCATTERED_SHOWERS: '🌦️', SHOWERS: '🌦️', BLOWING_SNOW: '❄️', UNKNOWN: '🌡️',
+  SCATTERED_SHOWERS: '🌦️', SHOWERS: '🌦️', BLOWING_SNOW: '❄️',
+  RAIN_AND_SNOW: '🌨️', SNOW_SHOWERS: '🌨️', UNKNOWN: '🌡️',
 };
 const emoji = (t?: string) => t ? (ICON[t] || ICON['UNKNOWN']) : '🌡️';
 
