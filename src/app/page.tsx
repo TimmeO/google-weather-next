@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -264,10 +264,77 @@ export default function Home() {
   );
 }
 
+// ─── Map Picker ───────────────────────────────────────────────────────────────
+function MapPicker({ lat, lon, onSelect, dark }: { lat: number; lon: number; onSelect: (lat: number, lon: number) => void; dark: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    // Dynamically init Leaflet map
+    const L = (window as any).L;
+    if (!L) return;
+
+    const map = L.map(mapRef.current).setView([lat, lon], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 18,
+    }).addTo(map);
+
+    // Existing marker
+    markerRef.current = L.marker([lat, lon], { draggable: true }).addTo(map);
+
+    map.on('click', (e: any) => {
+      const { lat: newLat, lng: newLon } = e.latlng;
+      markerRef.current.setLatLng([newLat, newLon]);
+      onSelect(newLat, newLon);
+    });
+
+    markerRef.current.on('dragend', (e: any) => {
+      const { lat: newLat, lng: newLon } = e.target.getLatLng();
+      onSelect(newLat, newLon);
+    });
+
+    mapInstanceRef.current = map;
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="mt-3">
+      <div
+        ref={mapRef}
+        className="w-full rounded-2xl overflow-hidden"
+        style={{ height: '240px', zIndex: 0 }}
+      />
+      <p className="text-[9px] text-[#9aa0a6] mt-1.5 text-center">Klikkaa karttaa valitaksesi sijainnin</p>
+    </div>
+  );
+}
+
 // ─── Location Modal ────────────────────────────────────────────────────────────
 function LocationModal({ location, onSelect, onClose, dark }: { location: Location; onSelect: (l: Location) => void; onClose: () => void; dark: boolean }) {
   const [lat, setLat] = useState('');
   const [lon, setLon] = useState('');
+  const [showMap, setShowMap] = useState(false);
+  const [mapCoords, setMapCoords] = useState({ lat: location.lat, lon: location.lon });
+
+  const handleMapSelect = (newLat: number, newLon: number) => {
+    setMapCoords({ lat: newLat, lon: newLon });
+  };
+
+  const handleConfirmMap = () => {
+    onSelect({ name: `${mapCoords.lat.toFixed(4)}, ${mapCoords.lon.toFixed(4)}`, lat: mapCoords.lat, lon: mapCoords.lon });
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={`w-full max-w-lg rounded-t-[1.75rem] p-6 ${dark ? 'bg-[#2d2f31]' : 'bg-white'} animate-in`}>
@@ -283,6 +350,24 @@ function LocationModal({ location, onSelect, onClose, dark }: { location: Locati
             </button>
           ))}
         </div>
+
+        {/* Map picker toggle */}
+        <div className="border-t border-[#e8eaed] dark:border-[#3c4043] pt-4 mb-3">
+          <button onClick={() => setShowMap(!showMap)}
+            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-medium transition ${showMap ? 'bg-[#e8f0fe] dark:bg-[#1a3a5c] text-[#1967d2] dark:text-[#8ab4f8]' : `border border-[#dadce0] dark:border-[#3c4043] ${dark ? 'text-white' : 'text-[#202124]'}`}`}>
+            🗺️ {showMap ? 'Piilota kartta' : 'Valitse kartalta'}
+          </button>
+          {showMap && (
+            <>
+              <MapPicker lat={mapCoords.lat} lon={mapCoords.lon} onSelect={handleMapSelect} dark={dark} />
+              <button onClick={handleConfirmMap}
+                className="w-full mt-2 py-2.5 bg-[#4285f4] text-white rounded-2xl text-sm font-medium hover:bg-[#1a73e8] transition">
+                Vahvista sijainti: {mapCoords.lat.toFixed(4)}, {mapCoords.lon.toFixed(4)}
+              </button>
+            </>
+          )}
+        </div>
+
         <div className="border-t border-[#e8eaed] dark:border-[#3c4043] pt-4">
           <p className="text-xs font-medium text-[#5f6368] dark:text-[#9aa0a6] mb-2">Omat koordinaatit</p>
           <div className="flex gap-2">
