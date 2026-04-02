@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Location { lat: number; lon: number; name: string; }
@@ -238,7 +239,7 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} />}
+        {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} hourly={hourly} />}
         {!loading && !error && tab === 'hourly' && hourly && <HourlyView h={hourly} dark={dark} onSelect={(i) => {}} />}
         {!loading && !error && tab === 'daily' && daily && <DailyView d={daily} dark={dark} />}
       </div>
@@ -290,6 +291,222 @@ function LocationModal({ location, onSelect, onClose, dark }: { location: Locati
   );
 }
 
+// ─── Wind Rose ────────────────────────────────────────────────────────────────
+function WindRose({ wind, dark }: { wind: CurrentData['wind']; dark: boolean }) {
+  const deg = wind?.direction?.degrees ?? 0;
+  const speed = wind?.speed?.value ?? 0;
+  const gust = wind?.gust?.value ?? 0;
+  const cardinal = wind?.direction?.cardinal ?? '—';
+
+  // Compass directions
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+  return (
+    <div className={`${gCard(dark, 'p-5')}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🧭</span>
+          <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">Tuulen suunta</span>
+        </div>
+        <span className="text-xs font-medium text-[#202124] dark:text-white">{cardinal}</span>
+      </div>
+
+      {/* SVG Compass */}
+      <div className="relative flex items-center justify-center my-2">
+        <svg viewBox="0 0 120 120" className="w-full max-w-[140px]" style={{ filter: dark ? 'drop-shadow(0 0 6px rgba(138,180,248,0.2))' : 'drop-shadow(0 0 6px rgba(66,133,244,0.15))' }}>
+          {/* Outer ring */}
+          <circle cx="60" cy="60" r="54" fill="none" stroke={dark ? '#3c4043' : '#e8eaed'} strokeWidth="1.5" />
+          <circle cx="60" cy="60" r="48" fill="none" stroke={dark ? '#3c4043' : '#e8eaed'} strokeWidth="0.5" />
+
+          {/* Cardinal labels */}
+          {[
+            { label: 'N', x: 60, y: 14, bold: true },
+            { label: 'E', x: 106, y: 64 },
+            { label: 'S', x: 60, y: 110 },
+            { label: 'W', x: 14, y: 64 },
+          ].map(d => (
+            <text key={d.label} x={d.x} y={d.y} textAnchor="middle" dominantBaseline="middle"
+              fontSize="8" fontWeight={d.bold ? '700' : '400'}
+              fill={dark ? '#9aa0a6' : '#5f6368'}>{d.label}</text>
+          ))}
+
+          {/* Minor ticks */}
+          {Array.from({ length: 36 }).map((_, i) => {
+            const a = i * 10;
+            const rad = (a - 90) * Math.PI / 180;
+            const inner = i % 9 === 0 ? 43 : 47;
+            const outer = 52;
+            return (
+              <line key={i}
+                x1={60 + inner * Math.cos(rad)} y1={60 + inner * Math.sin(rad)}
+                x2={60 + outer * Math.cos(rad)} y2={60 + outer * Math.sin(rad)}
+                stroke={dark ? '#3c4043' : '#dadce0'} strokeWidth={i % 9 === 0 ? 1.5 : 0.5} />
+            );
+          })}
+
+          {/* Wind speed rings */}
+          {[20, 40].map(r => (
+            <circle key={r} cx="60" cy="60" r={r} fill="none"
+              stroke={dark ? '#3c4043' : '#e8eaed'} strokeWidth="0.5" strokeDasharray="2 3" />
+          ))}
+
+          {/* Arrow */}
+          <g transform={`rotate(${deg}, 60, 60)`}>
+            {/* Arrow body */}
+            <polygon
+              points={`60,16 56,52 60,48 64,52`}
+              fill={dark ? '#8ab4f8' : '#4285f4'}
+              opacity="0.9"
+            />
+            {/* Arrow tail */}
+            <polygon
+              points={`60,52 56,56 60,98 64,56`}
+              fill={dark ? '#8ab4f8' : '#4285f4'}
+              opacity="0.35"
+            />
+            {/* Center dot */}
+            <circle cx="60" cy="60" r="5" fill={dark ? '#8ab4f8' : '#4285f4'} />
+            <circle cx="60" cy="60" r="2.5" fill={dark ? '#3c4043' : '#ffffff'} />
+          </g>
+        </svg>
+
+        {/* Speed labels around compass */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">↑ {speed} km/h</div>
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">puuska {gust} km/h</div>
+      </div>
+
+      {/* Speed breakdown */}
+      <div className="grid grid-cols-3 gap-2 mt-2 text-center">
+        {[
+          { label: 'Nopeus', value: `${speed} km/h` },
+          { label: 'Puuska', value: `${gust} km/h` },
+          { label: 'Suunta', value: `${deg}° ${cardinal}` },
+        ].map((item, i) => (
+          <div key={i} className={`rounded-xl py-1.5 ${dark ? 'bg-[#3c4043]/50' : 'bg-[#f1f3f4]'}`}>
+            <div className="text-[10px] font-bold text-[#202124] dark:text-white">{item.value}</div>
+            <div className="text-[9px] text-[#9aa0a6]">{item.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Temperature Chart ─────────────────────────────────────────────────────────
+function TempChart({ hourly, daily, dark, mode }: { hourly?: HourlyData | null; daily?: DailyData; dark: boolean; mode: 'hourly' | 'daily' }) {
+  const isHourly = mode === 'hourly';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any[] = isHourly
+    ? (hourly?.forecastHours?.map(h => ({
+        time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        temp: h.temperature?.degrees,
+        feels: h.feelsLikeTemperature?.degrees,
+        rain: h.precipitation?.probability?.percent ?? 0,
+      })) ?? [])
+    : (daily?.forecastDays?.map(d => ({
+        time: d.interval?.startTime ? new Date(d.interval.startTime).toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric' }) : '',
+        temp: d.maxTemperature?.degrees,
+        min: d.minTemperature?.degrees,
+        rain: d.daytimeForecast?.precipitation?.probability?.percent ?? 0,
+      })) ?? []);
+
+  const temps = data.map(d => d.temp).filter((v): v is number => v != null);
+  const minT = Math.min(...temps, 0);
+  const maxT = Math.max(...temps, 30);
+
+  const gradientId = `tempGrad-${mode}`;
+
+  return (
+    <div className={`${gCard(dark, 'p-5')}`}>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-base">📈</span>
+        <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">
+          {isHourly ? 'Lämpötila seuraavat 24h' : 'Päivittäinen lämpötila'}
+        </span>
+      </div>
+
+      <ResponsiveContainer width="100%" height={160}>
+        <ComposedChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <XAxis
+            dataKey="time"
+            tick={{ fontSize: 9, fill: dark ? '#9aa0a6' : '#5f6368' }}
+            tickLine={false} axisLine={false}
+            interval={isHourly ? 3 : 0}
+          />
+          <YAxis
+            domain={[Math.floor(minT / 5) * 5 - 2, Math.ceil(maxT / 5) * 5 + 2]}
+            tick={{ fontSize: 9, fill: dark ? '#9aa0a6' : '#5f6368' }}
+            tickLine={false} axisLine={false}
+            tickFormatter={v => `${v}°`}
+          />
+          <Tooltip
+            contentStyle={{
+              background: dark ? '#3c4043' : '#fff',
+              border: 'none',
+              borderRadius: '12px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              fontSize: '12px',
+              color: dark ? '#f1f3f4' : '#202124',
+            }}
+            labelStyle={{ color: dark ? '#9aa0a6' : '#5f6368', fontSize: '10px' }}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formatter={(v: any) => [`${v}°`, '']}
+          />
+
+
+
+          {/* Feels like (hourly only, as dashed) */}
+          {isHourly && (
+            <Line
+              dataKey="feels"
+              stroke={dark ? '#9aa0a6' : '#bdc1c6'}
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={false}
+              strokeLinecap="round"
+            />
+          )}
+
+          {/* Max temp (daily) */}
+          <Line
+            dataKey="temp"
+            stroke={dark ? '#8ab4f8' : '#4285f4'}
+            strokeWidth={2.5}
+            dot={false}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Min temp (daily only) */}
+          {!isHourly && (
+            <Line
+              dataKey="min"
+              stroke={dark ? '#bdc1c6' : '#9aa0a6'}
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={false}
+              strokeLinecap="round"
+            />
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+
+      {/* Legend */}
+      <div className="flex items-center justify-center gap-4 mt-2 text-[9px] text-[#9aa0a6]">
+        <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded-full bg-[#4285f4] dark:bg-[#8ab4f8] inline-block" /> Lämpötila</span>
+        {isHourly && <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded-full bg-[#bdc1c6] inline-block" style={{borderStyle:'dashed'}} /> Tuntuu kuin</span>}
+        {!isHourly && <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded-full bg-[#9aa0a6] inline-block" /> Ylin / Alin</span>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Metric Tile (Google demo style) ─────────────────────────────────────────
 function MetricTile({ icon, label, value, sub, dark, accent = false }: { icon: string; label: string; value: string; sub?: string; dark: boolean; accent?: boolean }) {
   return (
@@ -310,7 +527,7 @@ function Divider({ dark }: { dark: boolean }) {
 }
 
 // ─── Current View ─────────────────────────────────────────────────────────────
-function CurrentView({ c, dark }: { c: CurrentData; dark: boolean }) {
+function CurrentView({ c, dark, hourly }: { c: CurrentData; dark: boolean; hourly?: HourlyData | null }) {
   const precip = c.precipitation || {};
   const hist = c.currentConditionsHistory;
   const uvPct = Math.min((c.uvIndex ?? 0) / 11 * 100, 100);
@@ -319,16 +536,15 @@ function CurrentView({ c, dark }: { c: CurrentData; dark: boolean }) {
 
   return (
     <div className={`space-y-4 animate-in`}>
-      {/* Main metric tiles */}
+      {/* Top row: Wind Rose + Rain */}
       <div className="grid grid-cols-2 gap-3">
-        <MetricTile icon="💨" label="Tuuli" value={`${c.wind?.speed?.value ?? '—'} km/h`}
-          sub={`${windDir(c.wind?.direction?.degrees)} · puuskat ${c.wind?.gust?.value ?? '—'} km/h`} dark={dark} />
-        <MetricTile icon="💧" label="Sade" value={`${precip.qpf?.quantity ?? '—'} mm`}
-          sub={`Todennäköisyys ${precip.probability?.percent ?? '—'}%`} dark={dark} />
-        <MetricTile icon="📊" label="Ilmanpaine" value={`${c.airPressure?.meanSeaLevelMillibars?.toFixed(1) ?? '—'} hPa`}
-          dark={dark} />
-        <MetricTile icon="👁️" label="Näkyvyys" value={`${c.visibility?.distance ?? '—'} km`}
-          sub={`Pilvisyys ${c.cloudCover ?? '—'}%`} dark={dark} />
+        <WindRose wind={c.wind} dark={dark} />
+        <div className="space-y-3">
+          <MetricTile icon="💧" label="Sade" value={`${precip.qpf?.quantity ?? '—'} mm`}
+            sub={`Todennäköisyys ${precip.probability?.percent ?? '—'}%`} dark={dark} />
+          <MetricTile icon="📊" label="Ilmanpaine" value={`${c.airPressure?.meanSeaLevelMillibars?.toFixed(1) ?? '—'} hPa`}
+            dark={dark} />
+        </div>
       </div>
 
       {/* UV tile with bar */}
@@ -345,6 +561,10 @@ function CurrentView({ c, dark }: { c: CurrentData; dark: boolean }) {
         </div>
         <p className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6] mt-1.5">{uvLabel}</p>
       </div>
+
+      {/* Visibility */}
+      <MetricTile icon="👁️" label="Näkyvyys" value={`${c.visibility?.distance ?? '—'} km`}
+        sub={`Pilvisyys ${c.cloudCover ?? '—'}%`} dark={dark} />
 
       {/* Humidity + Dew + Heat */}
       <div className={`${gCard(dark, 'p-4')}`}>
@@ -397,65 +617,10 @@ function HourlyView({ h, dark, onSelect }: { h: HourlyData; dark: boolean; onSel
   const hours = h.forecastHours || [];
   if (!hours.length) return <p className="text-center text-[#9aa0a6] py-12">Ei dataa</p>;
 
-  // Find min/max for scaling
-  const temps = hours.map(h2 => h2.temperature?.degrees).filter((v): v is number => v != null);
-  const minT = Math.min(...temps);
-  const maxT = Math.max(...temps);
-  const range = maxT - minT || 1;
-
   return (
-    <div className={`${gCard(dark, 'p-5')}`}>
-      <p className="text-[11px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider mb-4">{hours.length} tunnin ennuste</p>
-
-      {/* Chart area */}
-      <div className="relative h-32 mb-2">
-        {/* SVG sparkline */}
-        <svg className="w-full h-full" viewBox={`0 0 ${hours.length * 48} 128`} preserveAspectRatio="none">
-          {/* Gradient fill */}
-          <defs>
-            <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity="0.3" />
-              <stop offset="100%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          {/* Area */}
-          <path
-            d={`M ${hours.map((h2, i) => {
-              const x = i * 48 + 24;
-              const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
-              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-            }).join(' ')} L ${(hours.length - 1) * 48 + 24} 120 L 24 120 Z`}
-            fill="url(#tempGrad)"
-          />
-          {/* Line */}
-          <path
-            d={hours.map((h2, i) => {
-              const x = i * 48 + 24;
-              const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
-              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-            }).join(' ')}
-            fill="none"
-            stroke={dark ? '#8ab4f8' : '#4285f4'}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* Dots */}
-          {hours.filter((_, i) => i % 3 === 0).map((h2, idx) => {
-            const i = idx * 3;
-            const x = i * 48 + 24;
-            const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
-            return <circle key={i} cx={x} cy={y} r="3" fill={dark ? '#8ab4f8' : '#4285f4'} />;
-          })}
-        </svg>
-      </div>
-
-      {/* Hour labels */}
-      <div className="flex justify-between text-[10px] text-[#9aa0a6] px-1 mb-4">
-        {hours.filter((_, i) => i % 6 === 0).map((h2, i) => (
-          <span key={i}>{i === 0 ? 'Nyt' : fmt.h(h2.interval.startTime)}</span>
-        ))}
-      </div>
+    <div className="space-y-4 animate-in">
+      {/* Recharts temp chart */}
+      <TempChart hourly={h} dark={dark} mode="hourly" />
 
       {/* Hour cards */}
       <div className="overflow-x-auto -mx-5 px-5">
@@ -484,7 +649,9 @@ function DailyView({ d, dark }: { d: DailyData; dark: boolean }) {
   if (!days.length) return <p className="text-center text-[#9aa0a6] py-12">Ei dataa</p>;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* Temp chart for daily */}
+      <TempChart daily={d} dark={dark} mode="daily" />
       {days.map((day, i) => {
         const dayW = day.daytimeForecast?.weatherCondition || {};
         const nightW = day.nighttimeForecast?.weatherCondition;
