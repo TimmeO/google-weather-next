@@ -303,7 +303,7 @@ function WindRose({ wind, dark }: { wind: CurrentData['wind']; dark: boolean }) 
   const deg = wind?.direction?.degrees ?? 0;
   const speed = wind?.speed?.value ?? 0;
   const gust = wind?.gust?.value ?? 0;
-  const cardinal = wind?.direction?.cardinal ?? '—';
+  const cardinal = windDir(wind?.direction?.degrees);
 
   // Compass directions
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -387,7 +387,7 @@ function WindRose({ wind, dark }: { wind: CurrentData['wind']; dark: boolean }) 
         {[
           { label: 'Nopeus', value: `${toMs(speed)} m/s` },
           { label: 'Puuska', value: `${toMs(gust)} m/s` },
-          { label: 'Suunta', value: `${deg}° ${cardinal}` },
+          { label: 'Suunta', value: `${deg}° ${windDir(deg)}` },
         ].map((item, i) => (
           <div key={i} className={`rounded-xl py-1.5 ${dark ? 'bg-[#3c4043]/50' : 'bg-[#f1f3f4]'}`}>
             <div className="text-[10px] font-bold text-[#202124] dark:text-white">{item.value}</div>
