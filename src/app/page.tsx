@@ -68,6 +68,11 @@ function windDir(deg?: number) {
   return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(deg / 22.5) % 16];
 }
 
+function toMs(kmh?: number) {
+  if (kmh == null) return '—';
+  return (kmh / 3.6).toFixed(1);
+}
+
 const fmt = {
   t: (v?: number) => v != null ? `${Math.round(v)}°` : '—',
   h: (s?: string) => s ? new Date(s).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }) : '—',
@@ -199,7 +204,7 @@ export default function Home() {
               {/* Quick stats */}
               <div className="flex justify-center gap-5 mt-6 text-sm text-white/70">
                 <span>💧 {current?.relativeHumidity ?? '—'}%</span>
-                <span>💨 {current?.wind?.speed?.value ?? '—'} km/h</span>
+                <span>💨 {toMs(current?.wind?.speed?.value)} m/s</span>
                 <span>{windDir(current?.wind?.direction?.degrees)}</span>
               </div>
 
@@ -371,15 +376,15 @@ function WindRose({ wind, dark }: { wind: CurrentData['wind']; dark: boolean }) 
         </svg>
 
         {/* Speed labels around compass */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">↑ {speed} km/h</div>
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">puuska {gust} km/h</div>
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">↑ {toMs(speed)} m/s</div>
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[9px] text-[#9aa0a6]">puuska {toMs(gust)} m/s</div>
       </div>
 
       {/* Speed breakdown */}
       <div className="grid grid-cols-3 gap-2 mt-2 text-center">
         {[
-          { label: 'Nopeus', value: `${speed} km/h` },
-          { label: 'Puuska', value: `${gust} km/h` },
+          { label: 'Nopeus', value: `${toMs(speed)} m/s` },
+          { label: 'Puuska', value: `${toMs(gust)} m/s` },
           { label: 'Suunta', value: `${deg}° ${cardinal}` },
         ].map((item, i) => (
           <div key={i} className={`rounded-xl py-1.5 ${dark ? 'bg-[#3c4043]/50' : 'bg-[#f1f3f4]'}`}>
@@ -547,24 +552,33 @@ function CurrentView({ c, dark, hourly }: { c: CurrentData; dark: boolean; hourl
         </div>
       </div>
 
-      {/* UV tile with bar */}
-      <div className={`${gCard(dark, 'p-4')}`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-base">☀️</span>
-            <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">UV-indeksi</span>
+      {/* UV + Visibility row */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* UV tile with bar */}
+        <div className={`${gCard(dark, 'p-3')}`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm">☀️</span>
+              <span className="text-[9px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">UV</span>
+            </div>
+            <span className={`text-base font-bold ${uvColor}`}>{c.uvIndex ?? '—'}</span>
           </div>
-          <span className={`text-lg font-bold ${uvColor}`}>{c.uvIndex ?? '—'}</span>
+          <div className="h-1 rounded-full bg-[#e8eaed] dark:bg-[#5f6368] overflow-hidden mb-1">
+            <div className="h-full rounded-full bg-gradient-to-r from-[#34a853] via-[#fbbc04] to-[#ea4335]" style={{ width: `${uvPct}%` }} />
+          </div>
+          <p className="text-[9px] text-[#5f6368] dark:text-[#9aa0a6]">{uvLabel}</p>
         </div>
-        <div className="h-1.5 rounded-full bg-[#e8eaed] dark:bg-[#5f6368] overflow-hidden">
-          <div className="h-full rounded-full bg-gradient-to-r from-[#34a853] via-[#fbbc04] to-[#ea4335]" style={{ width: `${uvPct}%` }} />
-        </div>
-        <p className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6] mt-1.5">{uvLabel}</p>
-      </div>
 
-      {/* Visibility */}
-      <MetricTile icon="👁️" label="Näkyvyys" value={`${c.visibility?.distance ?? '—'} km`}
-        sub={`Pilvisyys ${c.cloudCover ?? '—'}%`} dark={dark} />
+        {/* Visibility */}
+        <div className={`${gCard(dark, 'p-3')}`}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">👁️</span>
+            <span className="text-[9px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">Näkyvyys</span>
+          </div>
+          <div className="text-base font-bold text-[#202124] dark:text-white">{c.visibility?.distance ?? '—'} km</div>
+          <div className="text-[9px] text-[#5f6368] dark:text-[#9aa0a6]">Pilvisyys {c.cloudCover ?? '—'}%</div>
+        </div>
+      </div>
 
       {/* Humidity + Dew + Heat */}
       <div className={`${gCard(dark, 'p-4')}`}>
@@ -687,7 +701,7 @@ function DailyView({ d, dark }: { d: DailyData; dark: boolean }) {
             <div className="grid grid-cols-4 gap-2 text-center mb-3">
               {[
                 { icon: '🌧️', label: 'Sade', value: `${day.daytimeForecast?.precipitation?.probability?.percent ?? '—'}%` },
-                { icon: '💨', label: 'Tuuli', value: `${day.daytimeForecast?.wind?.speed?.value ?? '—'} km/h` },
+                { icon: '💨', label: 'Tuuli', value: `${toMs(day.daytimeForecast?.wind?.speed?.value)} m/s` },
                 { icon: '☀️', label: 'UV', value: `${day.daytimeForecast?.uvIndex ?? '—'}` },
                 { icon: '💧', label: 'Kost.', value: `${day.daytimeForecast?.relativeHumidity ?? '—'}%` },
               ].map((item, j) => (
