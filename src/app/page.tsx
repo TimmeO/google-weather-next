@@ -580,27 +580,11 @@ function CurrentView({ c, dark, hourly }: { c: CurrentData; dark: boolean; hourl
         </div>
       </div>
 
-      {/* Humidity + Dew + Heat */}
-      <div className={`${gCard(dark, 'p-4')}`}>
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div>
-            <div className="text-lg mb-0.5">💧</div>
-            <div className="text-lg font-bold text-[#202124] dark:text-white">{c.relativeHumidity ?? '—'}%</div>
-            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Kosteus</div>
-          </div>
-          <div className={`h-8 w-px mx-auto ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />
-          <div>
-            <div className="text-lg mb-0.5">🌡️</div>
-            <div className="text-lg font-bold text-[#202124] dark:text-white">{fmt.t(c.dewPoint?.degrees)}</div>
-            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Kastepiste</div>
-          </div>
-          <div className={`h-8 w-px mx-auto ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />
-          <div>
-            <div className="text-lg mb-0.5">🌡️</div>
-            <div className="text-lg font-bold text-[#202124] dark:text-white">{fmt.t(c.heatIndex?.degrees)}</div>
-            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Heat Index</div>
-          </div>
-        </div>
+      {/* Humidity + Dew + Heat — equal sized cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <MetricTile icon="💧" label="Kosteus" value={`${c.relativeHumidity ?? '—'}%`} dark={dark} />
+        <MetricTile icon="🌡️" label="Kastepiste" value={fmt.t(c.dewPoint?.degrees)} dark={dark} />
+        <MetricTile icon="🌡️" label="Heat Index" value={fmt.t(c.heatIndex?.degrees)} dark={dark} />
       </div>
 
       {/* 24h Changes */}
