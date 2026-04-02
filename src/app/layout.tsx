@@ -1,18 +1,21 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Sää · Google AI',
-  description: 'Google Maps Platform Weather API — AI-powered weather forecasts',
+  description: 'Google Maps Platform Weather API — AI-powered weather with DeepMind',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fi" suppressHydrationWarning>
-      <body className={inter.className}>{children}</body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

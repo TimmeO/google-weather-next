@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Location { lat: number; lon: number; name: string; }
@@ -30,11 +30,19 @@ interface HourlyEntry {
 interface DailyData { forecastDays: DailyEntry[]; }
 interface DailyEntry {
   interval: { startTime: string };
-  daytimeForecast: { weatherCondition: { type: string; description: { text: string } }; relativeHumidity: number; uvIndex: number; precipitation: { probability: { percent: number } }; wind: { speed: { value: number } }; cloudCover: number; interval: { startTime: string; endTime: string } };
+  daytimeForecast: {
+    weatherCondition: { type: string; description: { text: string } };
+    relativeHumidity: number; uvIndex: number;
+    precipitation: { probability: { percent: number } };
+    wind: { speed: { value: number } };
+    cloudCover: number;
+    interval: { startTime: string; endTime: string };
+  };
   nighttimeForecast?: { weatherCondition: { type: string } };
   maxTemperature: { degrees: number }; minTemperature: { degrees: number };
   feelsLikeMaxTemperature: { degrees: number }; feelsLikeMinTemperature: { degrees: number };
   sunEvents?: { sunriseTime: string; sunsetTime: string };
+  moonEvents?: { moonPhase: string; moonriseTimes: string[]; moonsetTimes: string[] };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -46,6 +54,13 @@ const ICON: Record<string, string> = {
   SCATTERED_SHOWERS: '🌦️', SHOWERS: '🌦️', BLOWING_SNOW: '❄️', UNKNOWN: '🌡️',
 };
 const emoji = (t?: string) => t ? (ICON[t] || ICON['UNKNOWN']) : '🌡️';
+
+const MDI: Record<string, string> = {
+  WIND: '💨', HUMIDITY: '💧', UV: '☀️', PRESSURE: '📊',
+  VISIBILITY: '👁️', DEW: '🌡️', RAIN: '🌧️', SNOW: '❄️',
+  STORM: '⛈️', SUN: '🌤', CLOUD: '☁️', MOON: '🌙',
+};
+const mdi = (k: string) => MDI[k] || '📌';
 
 function windDir(deg?: number) {
   if (deg == null) return '—';
@@ -62,30 +77,26 @@ const fmt = {
     if (d.toDateString() === today.toDateString()) return 'Tänään';
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
     if (d.toDateString() === tomorrow.toDateString()) return 'Huomenna';
-    return d.toLocaleDateString('fi-FI', { weekday: 'long', day: 'numeric', month: 'short' });
+    return d.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'short' });
   },
 };
 
-function tempColor(t?: number) {
-  if (t == null) return 'text-white';
-  if (t <= 0) return 'text-blue-300';
-  if (t <= 10) return 'text-green-300';
-  if (t <= 20) return 'text-yellow-300';
-  return 'text-orange-300';
+// Weather background gradients (Google demo style)
+function weatherBg(type?: string, isDay = true): string {
+  switch (type) {
+    case 'CLEAR': return isDay ? 'bg-gradient-to-br from-[#4285f4] via-[#5e97f6] to-[#7ab1ff]' : 'bg-gradient-to-br from-[#1a237e] via-[#283593] to-[#1a237e]';
+    case 'PARTLY_CLOUDY': return isDay ? 'bg-gradient-to-br from-[#5e97f6] via-[#7ab1ff] to-[#90caf9]' : 'bg-gradient-to-br from-[#1a237e] via-[#303f9f] to-[#3f51b5]';
+    case 'MOSTLY_CLOUDY': case 'CLOUDY': case 'OVERCAST': return 'bg-gradient-to-br from-[#546e7a] via-[#607d8b] to-[#78909c]';
+    case 'RAIN': case 'HEAVY_RAIN': case 'LIGHT_RAIN': case 'SCATTERED_SHOWERS': case 'SHOWERS': return 'bg-gradient-to-br from-[#37474f] via-[#455a64] to-[#546e7a]';
+    case 'THUNDERSTORM': return 'bg-gradient-to-br from-[#1a237e] via-[#311b92] to-[#4527a0]';
+    case 'SNOW': case 'LIGHT_SNOW': case 'HEAVY_SNOW': case 'BLIZZARD': case 'BLOWING_SNOW': return 'bg-gradient-to-br from-[#b0bec5] via-[#cfd8dc] to-[#eceff1]';
+    default: return isDay ? 'bg-gradient-to-br from-[#4285f4] to-[#1a73e8]' : 'bg-gradient-to-br from-[#202124] to-[#3c4043]';
+  }
 }
 
-// Weather background gradients
-function weatherGradient(type?: string, isDaytime = true): string {
-  const base = isDaytime ? 'from-blue-400 via-blue-500 to-blue-600' : 'from-slate-700 via-slate-800 to-slate-900';
-  switch (type) {
-    case 'CLEAR': return isDaytime ? 'from-amber-400 via-orange-400 to-orange-500' : 'from-slate-700 via-slate-800 to-indigo-900';
-    case 'PARTLY_CLOUDY': return isDaytime ? 'from-sky-400 via-blue-400 to-blue-500' : 'from-slate-600 via-slate-700 to-slate-800';
-    case 'MOSTLY_CLOUDY': case 'CLOUDY': case 'OVERCAST': return 'from-slate-400 via-slate-500 to-slate-600';
-    case 'RAIN': case 'HEAVY_RAIN': case 'LIGHT_RAIN': case 'SCATTERED_SHOWERS': case 'SHOWERS': return 'from-slate-500 via-blue-600 to-slate-700';
-    case 'THUNDERSTORM': return 'from-slate-700 via-purple-800 to-slate-900';
-    case 'SNOW': case 'LIGHT_SNOW': case 'HEAVY_SNOW': case 'BLIZZARD': case 'BLOWING_SNOW': return 'from-slate-200 via-blue-200 to-slate-300';
-    default: return base;
-  }
+// Google card style
+function gCard(dark: boolean, extra = '') {
+  return `rounded-[1.75rem] border-0 shadow-[0px_1px_2px_0px_rgba(60,64,67,0.3),0px_1px_4px_0px_rgba(60,64,67,0.25)] ${dark ? 'bg-[#3c4043] text-white' : 'bg-white text-[#202124]'} ${extra}`;
 }
 
 // ─── Presets ──────────────────────────────────────────────────────────────────
@@ -112,15 +123,14 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
-
   useEffect(() => {
-    const stored = localStorage.getItem('darkMode');
-    if (stored) setDark(stored === 'true');
+    const s = localStorage.getItem('darkMode');
+    if (s) setDark(s === 'true');
   }, []);
-
   useEffect(() => {
     if (!mounted) return;
-    if (dark) { document.documentElement.classList.add('dark'); } else { document.documentElement.classList.remove('dark'); }
+    if (dark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
     localStorage.setItem('darkMode', String(dark));
   }, [dark, mounted]);
 
@@ -139,101 +149,108 @@ export default function Home() {
 
   useEffect(() => { if (mounted) load(); }, [load, mounted]);
 
-  const gradient = weatherGradient(current?.weatherCondition?.type, current?.isDaytime !== false);
-  const temp = current?.temperature?.degrees;
-  const feels = current?.feelsLikeTemperature?.degrees;
-  const condition = current?.weatherCondition;
+  const bg = weatherBg(current?.weatherCondition?.type, current?.isDaytime !== false);
 
   return (
-    <div className={`min-h-screen transition-colors duration-500 ${dark ? 'dark bg-slate-900' : 'bg-slate-100'}`}>
+    <div className={`min-h-screen transition-colors duration-300 ${dark ? 'bg-[#202124] text-white' : 'bg-[#f8f9fa]'}`}>
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      <div className={`${bg} text-white transition-all duration-700 relative overflow-hidden`}>
+        {/* Subtle grid pattern */}
+        <div className="absolute inset-0 opacity-[0.03]" style={{backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '24px 24px'}} />
+        {/* Glow orbs */}
+        <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/[0.07] blur-3xl" />
+        <div className="absolute -bottom-16 -left-10 w-48 h-48 rounded-full bg-white/[0.05] blur-2xl" />
 
-      {/* Hero Section */}
-      <div className={`bg-gradient-to-br ${gradient} text-white transition-all duration-700 relative overflow-hidden`}>
-        {/* Decorative circles */}
-        <div className="absolute top-[-80px] right-[-80px] w-64 h-64 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute bottom-[-60px] left-[-40px] w-48 h-48 rounded-full bg-white/5 blur-2xl" />
+        <div className="relative z-10 max-w-lg mx-auto px-6 pt-10 pb-7">
 
-        <div className="relative z-10 max-w-lg mx-auto px-5 pt-10 pb-8">
-          {/* Header row */}
-          <div className="flex items-start justify-between mb-8">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Sää</h1>
-              <button onClick={() => setShowLoc(true)} className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm mt-1 transition">
+              <div className="text-[11px] font-medium text-white/60 uppercase tracking-widest mb-0.5">Google AI Sää</div>
+              <button onClick={() => setShowLoc(true)} className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm transition">
                 <span>📍 {location.name}</span>
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
             </div>
-            <button onClick={() => setDark(!dark)} className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-lg hover:bg-white/30 transition">
+            <button onClick={() => setDark(!dark)} className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-base hover:bg-white/30 transition">
               {dark ? '☀️' : '🌙'}
             </button>
           </div>
 
-          {/* Main temp display */}
+          {/* Main */}
           {loading ? (
-            <div className="flex flex-col items-center py-8">
-              <div className="w-12 h-12 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+            <div className="flex flex-col items-center py-10">
+              <div className="w-10 h-10 border-[2px] border-white/30 border-t-white rounded-full animate-spin" />
+              <p className="text-white/60 text-sm mt-3">Haetaan…</p>
             </div>
           ) : error ? (
-            <div className="text-center py-8">
+            <div className="text-center py-10">
               <p className="text-white/80 text-sm">{error}</p>
+              <button onClick={load} className="mt-3 px-5 py-2 bg-white/20 rounded-full text-sm hover:bg-white/30 transition">Yritä uudelleen</button>
             </div>
           ) : (
             <div className="text-center">
-              <div className="text-8xl mb-2">{emoji(condition?.type)}</div>
-              <div className={`text-7xl font-bold tracking-tighter ${tempColor(temp)}`}>{fmt.t(temp)}</div>
-              <p className="text-white/80 text-lg mt-1 capitalize">{condition?.description?.text || ''}</p>
-              <p className="text-white/60 text-sm mt-0.5">Tuntuu kuin {fmt.t(feels)}</p>
-              <div className="flex justify-center gap-6 mt-5 text-white/70 text-sm">
+              <div className="text-8xl mb-1">{emoji(current?.weatherCondition?.type)}</div>
+              <div className="text-8xl font-bold tracking-tighter text-white">{fmt.t(current?.temperature?.degrees)}</div>
+              <p className="text-white/80 text-lg mt-1 capitalize">{current?.weatherCondition?.description?.text}</p>
+              <p className="text-white/50 text-sm mt-0.5">Tuntuu kuin {fmt.t(current?.feelsLikeTemperature?.degrees)}</p>
+
+              {/* Quick stats */}
+              <div className="flex justify-center gap-5 mt-6 text-sm text-white/70">
                 <span>💧 {current?.relativeHumidity ?? '—'}%</span>
                 <span>💨 {current?.wind?.speed?.value ?? '—'} km/h</span>
-                <span>🌬 {windDir(current?.wind?.direction?.degrees)}</span>
+                <span>{windDir(current?.wind?.direction?.degrees)}</span>
               </div>
-              <p className="text-white/40 text-xs mt-3">
-                {current?.timeZone?.id?.replace('_', ' ')} · {fmt.h(current?.currentTime)} · päivitetty juuri
+
+              <p className="text-white/30 text-xs mt-3">
+                {current?.timeZone?.id?.replace(/_/g, ' ')} · {fmt.h(current?.currentTime)}
               </p>
             </div>
           )}
         </div>
 
         {/* Tab bar */}
-        <div className="max-w-lg mx-auto px-5 flex gap-1 bg-white/10 backdrop-blur-sm rounded-2xl p-1.5 relative z-10">
-          {(['current', 'hourly', 'daily'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${tab === t ? 'bg-white text-slate-800 shadow-sm' : 'text-white/70 hover:text-white'}`}>
-              {t === 'current' ? 'Nyt' : t === 'hourly' ? 'Tuntiennuste' : 'Päivät'}
-            </button>
-          ))}
+        <div className="max-w-lg mx-auto px-6 pb-4">
+          <div className={`flex gap-1 p-1 rounded-2xl ${dark ? 'bg-white/10' : 'bg-white/20'} backdrop-blur-sm`}>
+            {(['current', 'hourly', 'daily'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${tab === t ? 'bg-white text-[#4285f4] shadow-sm' : 'text-white/70 hover:text-white'}`}>
+                {t === 'current' ? 'Nyt' : t === 'hourly' ? 'Tuntiennuste' : 'Päivät'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-lg mx-auto px-5 py-6">
-        {loading && (
+      {/* ── Content ──────────────────────────────────────────────────── */}
+      <div className="max-w-lg mx-auto px-5 py-5">
+        {loading && !current && (
           <div className="flex justify-center py-16">
-            <div className="w-8 h-8 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin dark:border-slate-700 dark:border-t-blue-400" />
+            <div className="w-8 h-8 border-2 border-[#dadce0] border-t-[#4285f4] rounded-full animate-spin dark:border-[#3c4043] dark:border-t-[#8ab4f8]" />
           </div>
         )}
 
-        {!loading && error && (
+        {!loading && error && !current && (
           <div className="text-center py-16">
             <div className="text-5xl mb-4">😕</div>
-            <p className="text-slate-400 mb-4">{error}</p>
-            <button onClick={load} className="px-5 py-2 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition">Yritä uudelleen</button>
+            <p className="text-[#5f6368] mb-4">{error}</p>
+            <button onClick={load} className="px-5 py-2.5 bg-[#4285f4] text-white rounded-full text-sm font-medium hover:bg-[#1a73e8] transition">Yritä uudelleen</button>
           </div>
         )}
 
         {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} />}
-        {!loading && !error && tab === 'hourly' && hourly && <HourlyView h={hourly} dark={dark} />}
+        {!loading && !error && tab === 'hourly' && hourly && <HourlyView h={hourly} dark={dark} onSelect={(i) => {}} />}
         {!loading && !error && tab === 'daily' && daily && <DailyView d={daily} dark={dark} />}
       </div>
 
       {/* Footer */}
-      <div className="text-center text-xs text-slate-300 dark:text-slate-600 pb-8">
-        Google Maps Platform Weather API · DeepMind AI
+      <div className="text-center text-[10px] text-[#9aa0a6] pb-8 leading-relaxed">
+        Google Maps Platform Weather API<br/>
+        DeepMind AI · Päivittyy 15–30 min välein
       </div>
 
       {/* Location Modal */}
-      {showLoc && <LocationModal location={location} onSelect={(loc) => { setLocation(loc); setShowLoc(false); }} onClose={() => setShowLoc(false)} dark={dark} />}
+      {showLoc && <LocationModal location={location} onSelect={loc => { setLocation(loc); setShowLoc(false); }} onClose={() => setShowLoc(false)} dark={dark} />}
     </div>
   );
 }
@@ -243,29 +260,29 @@ function LocationModal({ location, onSelect, onClose, dark }: { location: Locati
   const [lat, setLat] = useState('');
   const [lon, setLon] = useState('');
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={`w-full max-w-lg rounded-t-3xl p-6 ${dark ? 'bg-slate-800' : 'bg-white'} animate-in`}>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={`w-full max-w-lg rounded-t-[1.75rem] p-6 ${dark ? 'bg-[#2d2f31]' : 'bg-white'} animate-in`}>
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold">Valitse sijainti</h2>
-          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">✕</button>
+          <h2 className="text-base font-medium">Valitse sijainti</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#f1f3f4] dark:bg-[#3c4043] flex items-center justify-center text-[#5f6368] dark:text-[#bdc1c6] hover:bg-[#dadce0] dark:hover:bg-[#4a4c4e] transition text-lg">✕</button>
         </div>
         <div className="grid grid-cols-3 gap-2 mb-4">
           {PRESETS.map(p => (
             <button key={p.name} onClick={() => onSelect(p)}
-              className={`w-full text-left px-3 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition text-sm ${p.name === location.name ? 'bg-blue-50 dark:bg-blue-900/30 font-semibold ring-1 ring-blue-200 dark:ring-blue-700' : ''}`}>
+              className={`w-full text-left px-3 py-3 rounded-2xl transition text-sm ${p.name === location.name ? 'bg-[#e8f0fe] dark:bg-[#1a3a5c] text-[#1967d2] dark:text-[#8ab4f8] font-medium' : `hover:bg-[#f1f3f4] dark:hover:bg-[#3c4043] ${dark ? 'text-white' : 'text-[#202124]'}`}`}>
               📍 {p.name}
             </button>
           ))}
         </div>
-        <div className="border-t border-slate-100 dark:border-slate-700 pt-4">
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">Omat koordinaatit</p>
+        <div className="border-t border-[#e8eaed] dark:border-[#3c4043] pt-4">
+          <p className="text-xs font-medium text-[#5f6368] dark:text-[#9aa0a6] mb-2">Omat koordinaatit</p>
           <div className="flex gap-2">
-            <input value={lat} onChange={e => setLat(e.target.value)} type="number" step="any" placeholder="Lat" 
-              className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-slate-700 dark:text-white" />
-            <input value={lon} onChange={e => setLon(e.target.value)} type="number" step="any" placeholder="Lon" 
-              className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-slate-700 dark:text-white" />
+            <input value={lat} onChange={e => setLat(e.target.value)} type="number" step="any" placeholder="Lat (esim. 60.40)"
+              className={`flex-1 px-3 py-2.5 rounded-2xl border text-sm focus:outline-none focus:ring-2 focus:ring-[#4285f4] ${dark ? 'bg-[#3c4043] border-[#5f6368] text-white placeholder-[#80868b]' : 'bg-[#f1f3f4] border-0 text-[#202124]'}`} />
+            <input value={lon} onChange={e => setLon(e.target.value)} type="number" step="any" placeholder="Lon (esim. 25.65)"
+              className={`flex-1 px-3 py-2.5 rounded-2xl border text-sm focus:outline-none focus:ring-2 focus:ring-[#4285f4] ${dark ? 'bg-[#3c4043] border-[#5f6368] text-white placeholder-[#80868b]' : 'bg-[#f1f3f4] border-0 text-[#202124]'}`} />
             <button onClick={() => { const la = parseFloat(lat); const lo = parseFloat(lon); if (!isNaN(la) && !isNaN(lo)) onSelect({ name: `${la}, ${lo}`, lat: la, lon: lo }); }}
-              className="px-5 py-2.5 bg-blue-500 text-white rounded-xl text-sm font-semibold hover:bg-blue-600 transition">→</button>
+              className="px-5 py-2.5 bg-[#4285f4] text-white rounded-2xl text-sm font-medium hover:bg-[#1a73e8] transition">→</button>
           </div>
         </div>
       </div>
@@ -273,91 +290,186 @@ function LocationModal({ location, onSelect, onClose, dark }: { location: Locati
   );
 }
 
-// ─── Current View ─────────────────────────────────────────────────────────────
-function MetricCard({ icon, label, value, sub, color = 'blue' }: { icon: string; label: string; value: string; sub?: string; color?: string }) {
-  const colors: Record<string, string> = { blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-500', green: 'bg-green-50 dark:bg-green-900/20 text-green-500', yellow: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-500', red: 'bg-red-50 dark:bg-red-900/20 text-red-500', purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-500', cyan: 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-500', slate: 'bg-slate-50 dark:bg-slate-800 text-slate-500' };
+// ─── Metric Tile (Google demo style) ─────────────────────────────────────────
+function MetricTile({ icon, label, value, sub, dark, accent = false }: { icon: string; label: string; value: string; sub?: string; dark: boolean; accent?: boolean }) {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700 shadow-sm">
-      <div className="flex items-center gap-2.5 mb-2">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${colors[color]}`}>{icon}</div>
-        <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">{label}</p>
+    <div className={`${gCard(dark, 'p-4 flex flex-col gap-1')} ${accent ? (dark ? 'bg-[#1a3a5c] border border-[#1967d2]/30' : 'bg-[#e8f0fe]') : ''}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-base">{icon}</span>
+        <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">{label}</span>
       </div>
-      <div className="text-xl font-bold text-slate-800 dark:text-white">{value}</div>
-      {sub && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{sub}</p>}
+      <div className="text-xl font-bold text-[#202124] dark:text-white mt-1">{value}</div>
+      {sub && <div className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6]">{sub}</div>}
     </div>
   );
 }
 
+// ─── Divider ───────────────────────────────────────────────────────────────────
+function Divider({ dark }: { dark: boolean }) {
+  return <div className={`h-px my-1 ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />;
+}
+
+// ─── Current View ─────────────────────────────────────────────────────────────
 function CurrentView({ c, dark }: { c: CurrentData; dark: boolean }) {
-  const w = c.weatherCondition || {};
   const precip = c.precipitation || {};
   const hist = c.currentConditionsHistory;
   const uvPct = Math.min((c.uvIndex ?? 0) / 11 * 100, 100);
   const uvLabel = c.uvIndex == null ? '—' : c.uvIndex <= 2 ? 'Matala' : c.uvIndex <= 5 ? 'Kohtalainen' : c.uvIndex <= 7 ? 'Korkea' : c.uvIndex <= 10 ? 'Hyvin korkea' : 'Äärimmäinen';
-  const hiLabel = c.heatIndex?.degrees == null ? '—' : c.heatIndex.degrees < 27 ? 'Mukava' : c.heatIndex.degrees < 32 ? 'Kuuma' : c.heatIndex.degrees < 39 ? 'Erittäin kuuma' : 'Vaarallinen';
+  const uvColor = c.uvIndex == null ? '' : c.uvIndex <= 2 ? 'text-[#34a853]' : c.uvIndex <= 5 ? 'text-[#fbbc04]' : c.uvIndex <= 7 ? 'text-[#f29900]' : 'text-[#ea4335]';
 
   return (
-    <div className="space-y-4 animate-in">
-      {/* Metric grid */}
+    <div className={`space-y-4 animate-in`}>
+      {/* Main metric tiles */}
       <div className="grid grid-cols-2 gap-3">
-        <MetricCard icon="💨" label="Tuuli" color="cyan"
-          value={`${c.wind?.speed?.value ?? '—'} km/h`}
-          sub={`${windDir(c.wind?.direction?.degrees)} · puuskat ${c.wind?.gust?.value ?? '—'} km/h`} />
-        <MetricCard icon="🌧️" label="Sade" color="blue"
-          value={`${precip.qpf?.quantity ?? '—'} mm`}
-          sub={`Todennäköisyys ${precip.probability?.percent ?? '—'}%`} />
-        <MetricCard icon="📊" label="Ilmanpaine" color="slate"
-          value={`${c.airPressure?.meanSeaLevelMillibars?.toFixed(1) ?? '—'} hPa`} />
-        <MetricCard icon="👁️" label="Näkyvyys" color="slate"
-          value={`${c.visibility?.distance ?? '—'} km`}
-          sub={`Pilvisyys ${c.cloudCover ?? '—'}%`} />
-        <MetricCard icon="☀️" label="UV-indeksi" color="yellow"
-          value={`${c.uvIndex ?? '—'}`}
-          sub={uvLabel} />
-        <MetricCard icon="🌡️" label="Kastepiste" color="green"
-          value={fmt.t(c.dewPoint?.degrees)}
-          sub={hiLabel} />
+        <MetricTile icon="💨" label="Tuuli" value={`${c.wind?.speed?.value ?? '—'} km/h`}
+          sub={`${windDir(c.wind?.direction?.degrees)} · puuskat ${c.wind?.gust?.value ?? '—'} km/h`} dark={dark} />
+        <MetricTile icon="💧" label="Sade" value={`${precip.qpf?.quantity ?? '—'} mm`}
+          sub={`Todennäköisyys ${precip.probability?.percent ?? '—'}%`} dark={dark} />
+        <MetricTile icon="📊" label="Ilmanpaine" value={`${c.airPressure?.meanSeaLevelMillibars?.toFixed(1) ?? '—'} hPa`}
+          dark={dark} />
+        <MetricTile icon="👁️" label="Näkyvyys" value={`${c.visibility?.distance ?? '—'} km`}
+          sub={`Pilvisyys ${c.cloudCover ?? '—'}%`} dark={dark} />
       </div>
 
-      {/* 24h changes */}
-      {hist && (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-100 dark:border-slate-700 shadow-sm">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">📊 Viimeisen 24h muutokset</p>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <div><div className="text-lg font-bold text-slate-800 dark:text-white">{fmt.t(hist.maxTemperature?.degrees)}</div><div className="text-xs text-slate-400">ylin</div></div>
-            <div><div className="text-lg font-bold text-slate-800 dark:text-white">{fmt.t(hist.minTemperature?.degrees)}</div><div className="text-xs text-slate-400">alin</div></div>
-            <div><div className={`text-lg font-bold ${(hist.temperatureChange?.degrees ?? 0) >= 0 ? 'text-green-500' : 'text-blue-500'}`}>{hist.temperatureChange?.degrees >= 0 ? '+' : ''}{hist.temperatureChange?.degrees?.toFixed(1) ?? '—'}°</div><div className="text-xs text-slate-400">muutos</div></div>
-            <div><div className="text-lg font-bold text-slate-800 dark:text-white">{hist.qpf?.quantity ?? '—'} mm</div><div className="text-xs text-slate-400">sade</div></div>
+      {/* UV tile with bar */}
+      <div className={`${gCard(dark, 'p-4')}`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">☀️</span>
+            <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">UV-indeksi</span>
           </div>
-          {c.thunderstormProbability != null && c.thunderstormProbability > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-purple-500">
-              <span>⛈️</span>
-              <span>Ukosteen todennäköisyys: {c.thunderstormProbability}%</span>
-            </div>
-          )}
+          <span className={`text-lg font-bold ${uvColor}`}>{c.uvIndex ?? '—'}</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-[#e8eaed] dark:bg-[#5f6368] overflow-hidden">
+          <div className="h-full rounded-full bg-gradient-to-r from-[#34a853] via-[#fbbc04] to-[#ea4335]" style={{ width: `${uvPct}%` }} />
+        </div>
+        <p className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6] mt-1.5">{uvLabel}</p>
+      </div>
+
+      {/* Humidity + Dew + Heat */}
+      <div className={`${gCard(dark, 'p-4')}`}>
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div>
+            <div className="text-lg mb-0.5">💧</div>
+            <div className="text-lg font-bold text-[#202124] dark:text-white">{c.relativeHumidity ?? '—'}%</div>
+            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Kosteus</div>
+          </div>
+          <div className={`h-8 w-px mx-auto ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />
+          <div>
+            <div className="text-lg mb-0.5">🌡️</div>
+            <div className="text-lg font-bold text-[#202124] dark:text-white">{fmt.t(c.dewPoint?.degrees)}</div>
+            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Kastepiste</div>
+          </div>
+          <div className={`h-8 w-px mx-auto ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />
+          <div>
+            <div className="text-lg mb-0.5">🌡️</div>
+            <div className="text-lg font-bold text-[#202124] dark:text-white">{fmt.t(c.heatIndex?.degrees)}</div>
+            <div className="text-[10px] text-[#5f6368] dark:text-[#9aa0a6]">Heat Index</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 24h Changes */}
+      {hist && (
+        <div className={`${gCard(dark, 'p-5')}`}>
+          <p className="text-[11px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider mb-3">📊 Viimeisen 24h muutokset</p>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[
+              { label: 'Ylin', value: fmt.t(hist.maxTemperature?.degrees) },
+              { label: 'Alin', value: fmt.t(hist.minTemperature?.degrees) },
+              { label: 'Muutos', value: `${(hist.temperatureChange?.degrees ?? 0) >= 0 ? '+' : ''}${hist.temperatureChange?.degrees?.toFixed(1) ?? '—'}°`, color: (hist.temperatureChange?.degrees ?? 0) >= 0 ? 'text-[#34a853]' : 'text-[#4285f4]' },
+              { label: 'Sade', value: `${hist.qpf?.quantity ?? '—'} mm` },
+            ].map((item, i) => (
+              <div key={i}>
+                <div className={`text-lg font-bold ${item.color || 'text-[#202124] dark:text-white'}`}>{item.value}</div>
+                <div className="text-[10px] text-[#9aa0a6]">{item.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Hourly View ─────────────────────────────────────────────────────────────
-function HourlyView({ h, dark }: { h: HourlyData; dark: boolean }) {
+// ─── Hourly View ──────────────────────────────────────────────────────────────
+function HourlyView({ h, dark, onSelect }: { h: HourlyData; dark: boolean; onSelect: (i: number) => void }) {
   const hours = h.forecastHours || [];
-  if (!hours.length) return <p className="text-center text-slate-400 py-12">Ei dataa</p>;
+  if (!hours.length) return <p className="text-center text-[#9aa0a6] py-12">Ei dataa</p>;
+
+  // Find min/max for scaling
+  const temps = hours.map(h2 => h2.temperature?.degrees).filter((v): v is number => v != null);
+  const minT = Math.min(...temps);
+  const maxT = Math.max(...temps);
+  const range = maxT - minT || 1;
 
   return (
-    <div className="space-y-3">
-      <p className="text-sm font-medium text-slate-400">{hours.length} tunnin ennuste</p>
+    <div className={`${gCard(dark, 'p-5')}`}>
+      <p className="text-[11px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider mb-4">{hours.length} tunnin ennuste</p>
+
+      {/* Chart area */}
+      <div className="relative h-32 mb-2">
+        {/* SVG sparkline */}
+        <svg className="w-full h-full" viewBox={`0 0 ${hours.length * 48} 128`} preserveAspectRatio="none">
+          {/* Gradient fill */}
+          <defs>
+            <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity="0.3" />
+              <stop offset="100%" stopColor={dark ? '#8ab4f8' : '#4285f4'} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {/* Area */}
+          <path
+            d={`M ${hours.map((h2, i) => {
+              const x = i * 48 + 24;
+              const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
+              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+            }).join(' ')} L ${(hours.length - 1) * 48 + 24} 120 L 24 120 Z`}
+            fill="url(#tempGrad)"
+          />
+          {/* Line */}
+          <path
+            d={hours.map((h2, i) => {
+              const x = i * 48 + 24;
+              const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
+              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+            }).join(' ')}
+            fill="none"
+            stroke={dark ? '#8ab4f8' : '#4285f4'}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Dots */}
+          {hours.filter((_, i) => i % 3 === 0).map((h2, idx) => {
+            const i = idx * 3;
+            const x = i * 48 + 24;
+            const y = 120 - ((h2.temperature?.degrees ?? minT) - minT) / range * 104 - 8;
+            return <circle key={i} cx={x} cy={y} r="3" fill={dark ? '#8ab4f8' : '#4285f4'} />;
+          })}
+        </svg>
+      </div>
+
+      {/* Hour labels */}
+      <div className="flex justify-between text-[10px] text-[#9aa0a6] px-1 mb-4">
+        {hours.filter((_, i) => i % 6 === 0).map((h2, i) => (
+          <span key={i}>{i === 0 ? 'Nyt' : fmt.h(h2.interval.startTime)}</span>
+        ))}
+      </div>
+
+      {/* Hour cards */}
       <div className="overflow-x-auto -mx-5 px-5">
         <div className="flex gap-2.5 pb-2" style={{ minWidth: 'max-content' }}>
           {hours.map((h2, i) => (
-            <div key={i} className="flex flex-col items-center gap-1.5 rounded-2xl p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm" style={{ minWidth: '76px' }}>
-              <div className="text-xs text-slate-400 dark:text-slate-500">{i === 0 ? 'Nyt' : fmt.h(h2.interval.startTime)}</div>
+            <div key={i}
+              onClick={() => onSelect(i)}
+              className={`flex flex-col items-center gap-1 rounded-2xl p-3 cursor-pointer transition ${dark ? 'hover:bg-[#3c4043]' : 'hover:bg-[#f1f3f4]'} ${i === 0 ? (dark ? 'bg-[#3c4043]' : 'bg-[#f1f3f4]') : ''}`}
+              style={{ minWidth: '72px' }}>
+              <div className="text-[10px] text-[#9aa0a6]">{i === 0 ? 'Nyt' : fmt.h(h2.interval.startTime)}</div>
               <div className="text-2xl">{emoji(h2.weatherCondition?.type)}</div>
-              <div className={`text-base font-bold ${tempColor(h2.temperature?.degrees)}`}>{fmt.t(h2.temperature?.degrees)}</div>
-              <div className="text-xs text-slate-400 dark:text-slate-500">{fmt.t(h2.feelsLikeTemperature?.degrees)}</div>
-              <div className="text-xs text-blue-400 dark:text-blue-300">💧{h2.precipitation?.probability?.percent ?? '—'}%</div>
+              <div className="text-base font-bold text-[#202124] dark:text-white">{fmt.t(h2.temperature?.degrees)}</div>
+              <div className="text-[10px] text-[#9aa0a6]">{fmt.t(h2.feelsLikeTemperature?.degrees)}</div>
+              <div className="text-[10px] text-[#4285f4]">💧 {h2.precipitation?.probability?.percent ?? '—'}%</div>
             </div>
           ))}
         </div>
@@ -369,7 +481,7 @@ function HourlyView({ h, dark }: { h: HourlyData; dark: boolean }) {
 // ─── Daily View ──────────────────────────────────────────────────────────────
 function DailyView({ d, dark }: { d: DailyData; dark: boolean }) {
   const days = d.forecastDays || [];
-  if (!days.length) return <p className="text-center text-slate-400 py-12">Ei dataa</p>;
+  if (!days.length) return <p className="text-center text-[#9aa0a6] py-12">Ei dataa</p>;
 
   return (
     <div className="space-y-3">
@@ -378,31 +490,55 @@ function DailyView({ d, dark }: { d: DailyData; dark: boolean }) {
         const nightW = day.nighttimeForecast?.weatherCondition;
         const sun = day.sunEvents;
         return (
-          <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700 shadow-sm">
+          <div key={i} className={`${gCard(dark, 'p-5')}`}>
+            {/* Day header */}
             <div className="flex items-center justify-between mb-3">
               <div>
-                <p className="font-semibold text-slate-800 dark:text-white">{fmt.day(day.interval?.startTime)}</p>
-                <p className="text-xs text-slate-400 capitalize">{dayW.description?.text || ''}</p>
+                <p className="font-medium text-[#202124] dark:text-white">{fmt.day(day.interval?.startTime)}</p>
+                <p className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6] capitalize">{dayW.description?.text || ''}</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-3xl">{emoji(dayW.type)}</div>
-                {nightW?.type && <div className="text-2xl opacity-60">{emoji(nightW.type)}</div>}
+                {nightW?.type && <div className="text-xl opacity-50">{emoji(nightW.type)}</div>}
               </div>
             </div>
-            <div className="flex items-center gap-3 text-sm">
-              <span className={`text-xl font-bold ${tempColor(day.maxTemperature?.degrees)}`}>{fmt.t(day.maxTemperature?.degrees)}</span>
-              <span className="text-slate-300 dark:text-slate-600">/</span>
-              <span className="text-slate-400">{fmt.t(day.minTemperature?.degrees)}</span>
-              <span className="ml-auto flex items-center gap-3 text-xs text-slate-400">
-                <span>🌧️ {day.daytimeForecast?.precipitation?.probability?.percent ?? '—'}%</span>
-                <span>💨 {day.daytimeForecast?.wind?.speed?.value ?? '—'} km/h</span>
-                <span>☀️ UV {day.daytimeForecast?.uvIndex ?? '—'}</span>
-              </span>
+
+            {/* Temp range bar */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-bold text-[#202124] dark:text-white w-8">{fmt.t(day.maxTemperature?.degrees)}</span>
+              <div className="flex-1 h-1 rounded-full bg-[#e8eaed] dark:bg-[#5f6368] relative">
+                <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#4285f4] to-[#ea4335]"
+                  style={{
+                    width: `${((day.maxTemperature?.degrees ?? 0) - (day.minTemperature?.degrees ?? 0)) / 30 * 100}%`,
+                    marginLeft: `${((day.minTemperature?.degrees ?? 0) + 20) / 50 * 100}%`,
+                  }} />
+              </div>
+              <span className="text-sm text-[#5f6368] dark:text-[#9aa0a6] w-8 text-right">{fmt.t(day.minTemperature?.degrees)}</span>
             </div>
+
+            {/* Detail row */}
+            <div className="grid grid-cols-4 gap-2 text-center mb-3">
+              {[
+                { icon: '🌧️', label: 'Sade', value: `${day.daytimeForecast?.precipitation?.probability?.percent ?? '—'}%` },
+                { icon: '💨', label: 'Tuuli', value: `${day.daytimeForecast?.wind?.speed?.value ?? '—'} km/h` },
+                { icon: '☀️', label: 'UV', value: `${day.daytimeForecast?.uvIndex ?? '—'}` },
+                { icon: '💧', label: 'Kost.', value: `${day.daytimeForecast?.relativeHumidity ?? '—'}%` },
+              ].map((item, j) => (
+                <div key={j} className={`rounded-xl py-1.5 ${dark ? 'bg-[#3c4043]/50' : 'bg-[#f1f3f4]'}`}>
+                  <div className="text-xs">{item.icon} <span className="text-[11px] font-bold text-[#202124] dark:text-white">{item.value}</span></div>
+                  <div className="text-[9px] text-[#9aa0a6]">{item.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Sun/Moon row */}
             {sun?.sunriseTime && (
-              <div className="flex gap-4 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-400">
-                <span>🌅 {fmt.h(sun.sunriseTime)}</span>
-                <span>🌇 {fmt.h(sun.sunsetTime)}</span>
+              <div className={`flex gap-4 py-2.5 border-t ${dark ? 'border-[#3c4043] text-[#9aa0a6]' : 'border-[#e8eaed] text-[#5f6368]'}`}>
+                <span className="text-xs">🌅 {fmt.h(sun.sunriseTime)}</span>
+                <span className="text-xs">🌇 {fmt.h(sun.sunsetTime)}</span>
+                {day.moonEvents?.moonriseTimes?.[0] && (
+                  <span className="text-xs">🌙 {fmt.h(day.moonEvents.moonriseTimes[0])}</span>
+                )}
               </div>
             )}
           </div>
