@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = `${BASE_URL}/forecast/hourly:lookup?key=${API_KEY}&location.latitude=${lat}&location.longitude=${lon}&hours=${hours}&unitsSystem=${units}`;
+    const url = `${BASE_URL}/forecast/hours:lookup?key=${API_KEY}&location.latitude=${lat}&location.longitude=${lon}&hours=${hours}&unitsSystem=${units}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text();
