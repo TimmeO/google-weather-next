@@ -17,6 +17,7 @@ interface CurrentData {
   thunderstormProbability: number;
   airPressure: { meanSeaLevelMillibars: number };
   wind: { direction: { degrees: number; cardinal: string }; speed: { value: number }; gust: { value: number } };
+  windChill?: { degrees: number; unit: string };
   visibility: { distance: number }; cloudCover: number;
   currentConditionsHistory?: { temperatureChange: { degrees: number }; maxTemperature: { degrees: number }; minTemperature: { degrees: number }; qpf: { quantity: number } };
 }
@@ -118,7 +119,7 @@ const PRESETS: Location[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Home() {
   const [location, setLocation] = useState<Location>({ name: 'Porvoo', lat: 60.40, lon: 25.65 });
-  const [tab, setTab] = useState<'current' | 'hourly' | 'daily'>('current');
+  const [tab, setTab] = useState<'current' | 'hourly' | 'daily' | 'data'>('current');
   const [dark, setDark] = useState(false);
   const [current, setCurrent] = useState<CurrentData | null>(null);
   const [hourly, setHourly] = useState<HourlyData | null>(null);
@@ -218,10 +219,10 @@ export default function Home() {
         {/* Tab bar */}
         <div className="max-w-lg mx-auto px-6 pb-4">
           <div className={`flex gap-1 p-1 rounded-2xl ${dark ? 'bg-white/10' : 'bg-white/20'} backdrop-blur-sm`}>
-            {(['current', 'hourly', 'daily'] as const).map(t => (
+            {(['current', 'hourly', 'daily', 'data'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${tab === t ? 'bg-white text-[#4285f4] shadow-sm' : 'text-white/70 hover:text-white'}`}>
-                {t === 'current' ? 'Nyt' : t === 'hourly' ? 'Tuntiennuste' : 'Päivät'}
+                {t === 'current' ? 'Nyt' : t === 'hourly' ? 'Tunnit' : t === 'daily' ? 'Päivät' : 'Data'}
               </button>
             ))}
           </div>
@@ -247,6 +248,7 @@ export default function Home() {
         {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} hourly={hourly} />}
         {!loading && !error && tab === 'hourly' && hourly && <HourlyView h={hourly} dark={dark} onSelect={(i) => {}} />}
         {!loading && !error && tab === 'daily' && daily && <DailyView d={daily} dark={dark} />}
+        {!loading && !error && tab === 'data' && current && <DataView c={current} hourly={hourly} daily={daily} dark={dark} />}
       </div>
 
       {/* Footer */}
@@ -709,6 +711,120 @@ function DailyView({ d, dark }: { d: DailyData; dark: boolean }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Data View — all raw API parameters ───────────────────────────────────────
+function DataView({ c, hourly, daily, dark }: { c: CurrentData; hourly?: HourlyData | null; daily?: DailyData | null; dark: boolean }) {
+  const rows: { label: string; value: string }[] = [];
+
+  // Meta
+  rows.push({ label: '⏰ Aika', value: '' });
+  rows.push({ label: 'Nykyinen aika', value: fmt.h(c.currentTime) });
+  rows.push({ label: 'Aikavyöhyke', value: c.timeZone?.id?.replace(/_/g, ' ') ?? '—' });
+  rows.push({ label: 'Päiväaika', value: c.isDaytime ? 'Kyllä ☀️' : 'Ei 🌙' });
+
+  // Temperature
+  rows.push({ label: '🌡️ Lämpötila', value: '' });
+  rows.push({ label: 'Lämpötila', value: fmt.t(c.temperature?.degrees) });
+  rows.push({ label: 'Tuntuu kuin', value: fmt.t(c.feelsLikeTemperature?.degrees) });
+  rows.push({ label: 'Kastepiste', value: fmt.t(c.dewPoint?.degrees) });
+  rows.push({ label: 'Lämpöindeksi (Heat Index)', value: fmt.t(c.heatIndex?.degrees) });
+  rows.push({ label: 'Tuulen jäähdytys (Wind Chill)', value: fmt.t(c.windChill?.degrees) });
+  rows.push({ label: 'Maksimi (24h)', value: fmt.t(c.currentConditionsHistory?.maxTemperature?.degrees) });
+  rows.push({ label: 'Minimi (24h)', value: fmt.t(c.currentConditionsHistory?.minTemperature?.degrees) });
+  rows.push({ label: 'Muutos (24h)', value: `${(c.currentConditionsHistory?.temperatureChange?.degrees ?? 0) >= 0 ? '+' : ''}${c.currentConditionsHistory?.temperatureChange?.degrees?.toFixed(1) ?? '—'}°` });
+
+  // Wind
+  rows.push({ label: '💨 Tuuli', value: '' });
+  rows.push({ label: 'Nopeus', value: `${toMs(c.wind?.speed?.value)} m/s` });
+  rows.push({ label: 'Puuskat', value: `${toMs(c.wind?.gust?.value)} m/s` });
+  rows.push({ label: 'Suunta (asteet)', value: `${c.wind?.direction?.degrees ?? '—'}°` });
+  rows.push({ label: 'Suunta (cardinal)', value: c.wind?.direction?.cardinal ?? '—' });
+  rows.push({ label: 'Yksikkö (lämpö)', value: c.temperature?.unit ?? '—' });
+
+  // Precipitation
+  rows.push({ label: '🌧️ Sade', value: '' });
+  rows.push({ label: 'Sademäärä (qpf)', value: `${c.precipitation?.qpf?.quantity ?? '—'} mm` });
+  rows.push({ label: 'Sateen tyyppi', value: c.precipitation?.probability?.type ?? '—' });
+  rows.push({ label: 'Sateen todennäköisyys', value: `${c.precipitation?.probability?.percent ?? '—'}%` });
+  rows.push({ label: 'Ukkosen todennäköisyys', value: `${c.thunderstormProbability ?? '—'}%` });
+  rows.push({ label: 'Lumikertymä (qpf)', value: `${(c.precipitation as any)?.snowQpf?.quantity ?? '—'} mm` });
+
+  // Atmosphere
+  rows.push({ label: '🌍 Ilmakehä', value: '' });
+  rows.push({ label: 'Suhteellinen kosteus', value: `${c.relativeHumidity ?? '—'}%` });
+  rows.push({ label: 'Ilmanpaine (hPa)', value: c.airPressure?.meanSeaLevelMillibars?.toFixed(1) ?? '—' });
+  rows.push({ label: 'UV-indeksi', value: `${c.uvIndex ?? '—'}` });
+  rows.push({ label: 'Näkyvyys', value: `${c.visibility?.distance ?? '—'} km` });
+  rows.push({ label: 'Pilvisyys', value: `${c.cloudCover ?? '—'}%` });
+
+  // Condition
+  rows.push({ label: '☁️ Olosuhde', value: '' });
+  rows.push({ label: 'Säätyyppi', value: c.weatherCondition?.type ?? '—' });
+  rows.push({ label: 'Kuvaus', value: c.weatherCondition?.description?.text ?? '—' });
+  rows.push({ label: 'Ikonipohja', value: c.weatherCondition?.iconBaseUri ?? '—' });
+
+  // Historical
+  rows.push({ label: '📊 Historia (24h)', value: '' });
+  rows.push({ label: 'Lämpötilan muutos', value: `${(c.currentConditionsHistory?.temperatureChange?.degrees ?? 0) >= 0 ? '+' : ''}${c.currentConditionsHistory?.temperatureChange?.degrees?.toFixed(2) ?? '—'}°` });
+  rows.push({ label: 'Ylin lämpötila', value: fmt.t(c.currentConditionsHistory?.maxTemperature?.degrees) });
+  rows.push({ label: 'Alin lämpötila', value: fmt.t(c.currentConditionsHistory?.minTemperature?.degrees) });
+  rows.push({ label: 'Sademäärä (24h)', value: `${c.currentConditionsHistory?.qpf?.quantity ?? '—'} mm` });
+
+  // Daily summary
+  if (daily?.forecastDays?.[0]) {
+    const d0 = daily.forecastDays[0];
+    rows.push({ label: '📅 Päiväennuste (tänään)', value: '' });
+    rows.push({ label: 'Ylin lämpö', value: fmt.t(d0.maxTemperature?.degrees) });
+    rows.push({ label: 'Alin lämpö', value: fmt.t(d0.minTemperature?.degrees) });
+    rows.push({ label: 'Tuntuu kuin (max)', value: fmt.t(d0.feelsLikeMaxTemperature?.degrees) });
+    rows.push({ label: 'Tuntuu kuin (min)', value: fmt.t(d0.feelsLikeMinTemperature?.degrees) });
+    rows.push({ label: 'Auringonnousu', value: fmt.h(d0.sunEvents?.sunriseTime) });
+    rows.push({ label: 'Auringonlasku', value: fmt.h(d0.sunEvents?.sunsetTime) });
+    rows.push({ label: 'Kuun vaihe', value: d0.moonEvents?.moonPhase ?? '—' });
+    rows.push({ label: 'Kuun nousu', value: fmt.h(d0.moonEvents?.moonriseTimes?.[0]) });
+    rows.push({ label: 'Kuun lasku', value: fmt.h(d0.moonEvents?.moonsetTimes?.[0]) });
+  }
+
+  // Hourly next
+  if (hourly?.forecastHours?.[1]) {
+    const h1 = hourly.forecastHours[1];
+    rows.push({ label: '⏱️ Seuraava tunti (+1h)', value: '' });
+    rows.push({ label: 'Lämpötila', value: fmt.t(h1.temperature?.degrees) });
+    rows.push({ label: 'Tuntuu kuin', value: fmt.t(h1.feelsLikeTemperature?.degrees) });
+    rows.push({ label: 'Sateen %', value: `${h1.precipitation?.probability?.percent ?? '—'}%` });
+    rows.push({ label: 'Säätyyppi', value: h1.weatherCondition?.type ?? '—' });
+  }
+
+  // Render
+  return (
+    <div className={`${gCard(dark, 'p-5')}`}>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-base">📋</span>
+        <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">
+          Kaikki parametrit — {rows.length} kenttää
+        </span>
+      </div>
+      <div className="space-y-0">
+        {rows.map((row, i) => {
+          if (!row.value) {
+            // Section header
+            return (
+              <div key={i} className={`pt-3 pb-1.5 mt-1 first:mt-0 first:pt-0 border-t border-[#e8eaed] dark:border-[#3c4043] ${i === 0 ? 'border-t-0 pt-0 mt-0' : ''}`}>
+                <p className="text-[10px] font-bold text-[#4285f4] dark:text-[#8ab4f8] uppercase tracking-wider">{row.label}</p>
+              </div>
+            );
+          }
+          return (
+            <div key={i} className="flex items-center justify-between py-2 border-b border-[#f1f3f4] dark:border-[#2d2f31] last:border-0">
+              <span className="text-[11px] text-[#5f6368] dark:text-[#9aa0a6]">{row.label}</span>
+              <span className="text-[11px] font-medium text-[#202124] dark:text-white text-right max-w-[55%] truncate">{row.value}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
