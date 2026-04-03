@@ -179,6 +179,17 @@ export default function Home() {
                 <span>📍 {location.name}</span>
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
+              <button
+                onClick={load}
+                disabled={loading}
+                className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs transition disabled:opacity-40 ml-1"
+                title="Päivitä tiedot"
+              >
+                <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {loading ? 'Päivitetään…' : 'Päivitä'}
+              </button>
             </div>
             <button onClick={() => setDark(!dark)} className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-base hover:bg-white/30 transition">
               {dark ? '☀️' : '🌙'}
