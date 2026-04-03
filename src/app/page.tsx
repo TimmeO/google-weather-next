@@ -182,7 +182,7 @@ export default function Home() {
               <button
                 onClick={load}
                 disabled={loading}
-                className="flex items-center gap-1.5 text-white/60 hover:text-white text-xs transition disabled:opacity-40 ml-1"
+                className={`mt-1.5 flex items-center gap-1.5 text-white/50 hover:text-white/80 text-xs transition disabled:opacity-40 ${loading ? '' : ''}`}
                 title="Päivitä tiedot"
               >
                 <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
