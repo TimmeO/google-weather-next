@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar, CartesianGrid, BarChart } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Location { lat: number; lon: number; name: string; }
@@ -625,6 +625,74 @@ function MetricTile({ icon, label, value, sub, dark, accent = false }: { icon: s
   );
 }
 
+// ─── Rainfall Bar Chart ────────────────────────────────────────────────────────
+function RainfallChart({ hourly, dark }: { hourly?: HourlyData | null; dark: boolean }) {
+  const data = hourly?.forecastHours?.slice(0, 24).map(h => ({
+    time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    precip: h.precipitation?.probability?.percent ?? 0,
+    hour: new Date(h.interval.startTime).getHours(),
+  })) ?? [];
+
+  if (!data.length) return null;
+
+  const maxPrecip = Math.max(...data.map(d => d.precip), 10);
+
+  return (
+    <div className={`${gCard(dark, 'p-5')}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">🌧️</span>
+        <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">
+          Sademäärä seuraavat 24h
+        </span>
+      </div>
+      <p className="text-[9px] text-[#9aa0a6] mb-3">Ennustettu sademäärä tunneittain (mm)</p>
+
+      <ResponsiveContainer width="100%" height={120}>
+        <BarChart data={data} margin={{ top: 2, right: 2, bottom: 0, left: -28 }} barCategoryGap="20%">
+          <CartesianGrid
+            strokeDasharray="3 3"
+            vertical={false}
+            stroke={dark ? '#3c4043' : '#e8eaed'}
+            strokeOpacity={0.6}
+          />
+          <XAxis
+            dataKey="time"
+            tick={{ fontSize: 8, fill: dark ? '#9aa0a6' : '#5f6368' }}
+            tickLine={false}
+            axisLine={false}
+            interval={3}
+          />
+          <YAxis
+            domain={[0, Math.ceil(maxPrecip / 20) * 20]}
+            tick={{ fontSize: 8, fill: dark ? '#9aa0a6' : '#5f6368' }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={v => `${v}%`}
+          />
+          <Tooltip
+            contentStyle={{
+              background: dark ? '#3c4043' : '#fff',
+              border: 'none',
+              borderRadius: '12px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              fontSize: '12px',
+              color: dark ? '#f1f3f4' : '#202124',
+            }}
+            labelStyle={{ color: dark ? '#9aa0a6' : '#5f6368', fontSize: '10px' }}
+            formatter={(v: any) => [`${v}%`, 'Sade']}
+          />
+          <Bar
+            dataKey="precip"
+            fill={dark ? '#8ab4f8' : '#4285f4'}
+            radius={[3, 3, 0, 0]}
+            maxBarSize={18}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 // ─── Divider ───────────────────────────────────────────────────────────────────
 function Divider({ dark }: { dark: boolean }) {
   return <div className={`h-px my-1 ${dark ? 'bg-[#3c4043]' : 'bg-[#e8eaed]'}`} />;
@@ -685,6 +753,9 @@ function CurrentView({ c, dark, hourly }: { c: CurrentData; dark: boolean; hourl
         <MetricTile icon="🌡️" label="Kastepiste" value={fmt.t(c.dewPoint?.degrees)} dark={dark} />
         <MetricTile icon="🌡️" label="Heat Index" value={fmt.t(c.heatIndex?.degrees)} dark={dark} />
       </div>
+
+      {/* 24h Rainfall Bar Chart */}
+      {hourly && <RainfallChart hourly={hourly} dark={dark} />}
 
       {/* 24h Changes */}
       {hist && (
