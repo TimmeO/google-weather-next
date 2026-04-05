@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar, CartesianGrid, BarChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar, CartesianGrid, BarChart, Cell } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Location { lat: number; lon: number; name: string; }
@@ -638,31 +638,39 @@ interface PrecipData {
 function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: boolean }) {
   if (!precip) return null;
 
-  // Build chart data: past hours on left, forecast on right
-  const pastData = precip.pastHours?.map((h, i) => ({
+  const PAST_COLOR = dark ? '#5b9bf5' : '#1a73e8';
+  const FUTURE_COLOR = dark ? '#8ab4f8' : '#4285f4';
+
+  // Past hourly (probability %)
+  const pastData = precip.pastHours?.map((h) => ({
     time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    precip: h.precipitation?.probability?.percent ?? 0,
+    value: h.precipitation?.probability?.percent ?? 0,
+    unit: '%',
     type: 'past' as const,
-    index: i,
   })).reverse() ?? [];
 
-  const forecastData = precip.forecastHours?.map((h, i) => ({
+  // Forecast hourly (probability %)
+  const forecastData = precip.forecastHours?.map((h) => ({
     time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    precip: h.precipitation?.probability?.percent ?? 0,
+    value: h.precipitation?.probability?.percent ?? 0,
+    unit: '%',
     type: 'future' as const,
-    index: i,
   })) ?? [];
 
-  // If no hourly past data, use aggregate as a single "Menneet 24h" bar
+  // Aggregate past 24h bar (mm) — only when no hourly past data
   const aggregateBar = (precip.pastHistoryQpf != null && pastData.length === 0)
-    ? [{ time: '−24h', precip: precip.pastHistoryQpf, type: 'past' as const, index: 0 }]
+    ? [{ time: '−24h', value: precip.pastHistoryQpf, unit: 'mm', type: 'past' as const }]
     : [];
 
   const allData = [...aggregateBar, ...pastData, ...forecastData];
 
   if (!allData.length) return null;
 
-  const maxPrecip = Math.max(...allData.map(d => d.precip), 10);
+  // Y-axis: if any mm present, show mm; otherwise %
+  const hasMm = allData.some(d => d.unit === 'mm');
+  const maxVal = Math.max(...allData.map(d => d.value), 10);
+  const yDomain: [number, number] = [0, Math.ceil(maxVal / (hasMm ? 5 : 20)) * (hasMm ? 5 : 20)];
+  const yTickFormatter = (v: number) => hasMm ? `${v}mm` : `${v}%`;
 
   return (
     <div className={`${gCard(dark, 'p-5')}`}>
@@ -673,7 +681,11 @@ function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: bool
         </span>
       </div>
       <div className="flex items-center gap-3 mb-3">
-        <p className="text-[9px] text-[#9aa0a6]">Vasemmalla {aggregateBar.length ? 'yhteensä' : 'tunneittain'} mennyt 24h · Oikealla ennuste</p>
+        <p className="text-[9px] text-[#9aa0a6]">
+          {aggregateBar.length
+            ? 'Vasemmalla menneen 24h yhteissumma (mm) · Oikealla ennuste (%-todennäköisyys)'
+            : 'Vasemmalla mennyt 24h tunneittain · Oikealla ennuste'}
+        </p>
         <div className="flex items-center gap-1.5 ml-auto text-[9px]">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-[2px] bg-[#1a73e8] dark:bg-[#5b9bf5] inline-block" /> Mennyt</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-[2px] bg-[#4285f4] dark:bg-[#8ab4f8] inline-block" /> Ennuste</span>
@@ -696,11 +708,11 @@ function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: bool
             interval={aggregateBar.length ? 5 : 3}
           />
           <YAxis
-            domain={[0, Math.ceil(maxPrecip / 20) * 20]}
+            domain={yDomain}
             tick={{ fontSize: 8, fill: dark ? '#9aa0a6' : '#5f6368' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={v => `${v}%`}
+            tickFormatter={yTickFormatter}
           />
           <Tooltip
             contentStyle={{
@@ -713,18 +725,17 @@ function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: bool
             }}
             labelStyle={{ color: dark ? '#9aa0a6' : '#5f6368', fontSize: '10px' }}
             formatter={(v: any, _: any, p: any) => {
-              if (p.payload.type === 'past' && aggregateBar.length) return [`${v} mm (yht.)`, 'Mennyt 24h'];
-              return [`${v}%`, p.payload.type === 'past' ? 'Mennyt' : 'Ennuste'];
+              const d = p.payload;
+              const label = d.type === 'past' ? 'Mennyt' : 'Ennuste';
+              return [`${v}${d.unit}`, label];
             }}
           />
-          <Bar
-            dataKey="precip"
-            radius={[3, 3, 0, 0]}
-            maxBarSize={16}
-            fill="#4285f4"
-          >
+          <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={16}>
             {allData.map((entry, index) => (
-              <rect key={index} fill={entry.type === 'past' ? (dark ? '#5b9bf5' : '#1a73e8') : (dark ? '#8ab4f8' : '#4285f4')} />
+              <Cell
+                key={`cell-${index}`}
+                fill={entry.type === 'past' ? PAST_COLOR : FUTURE_COLOR}
+              />
             ))}
           </Bar>
         </BarChart>
