@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar, CartesianGrid, BarChart, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, ComposedChart, Bar, CartesianGrid, BarChart } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Location { lat: number; lon: number; name: string; }
@@ -125,7 +125,6 @@ export default function Home() {
   const [current, setCurrent] = useState<CurrentData | null>(null);
   const [hourly, setHourly] = useState<HourlyData | null>(null);
   const [daily, setDaily] = useState<DailyData | null>(null);
-  const [precip, setPrecip] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showLoc, setShowLoc] = useState(false);
@@ -146,15 +145,13 @@ export default function Home() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [c, h, d, prec] = await Promise.all([
+      const [c, h, d] = await Promise.all([
         fetch(`/api/weather/current?lat=${location.lat}&lon=${location.lon}`).then(r => r.json()),
         fetch(`/api/weather/hourly?lat=${location.lat}&lon=${location.lon}&hours=24`).then(r => r.json()),
         fetch(`/api/weather/daily?lat=${location.lat}&lon=${location.lon}&days=10`).then(r => r.json()),
-        fetch(`/api/weather/precipitation?lat=${location.lat}&lon=${location.lon}`).then(r => r.json()),
       ]);
       if (c.error) throw new Error(c.error);
       setCurrent(c); setHourly(h); setDaily(d);
-      if (!prec.error) setPrecip(prec);
     } catch (e: any) { setError(e.message || 'Virhe'); } finally { setLoading(false); }
   }, [location]);
 
@@ -260,7 +257,7 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} hourly={hourly} precip={precip} />}
+        {!loading && !error && tab === 'current' && current && <CurrentView c={current} dark={dark} hourly={hourly} />}
         {!loading && !error && tab === 'hourly' && hourly && <HourlyView h={hourly} dark={dark} onSelect={(i) => {}} />}
         {!loading && !error && tab === 'daily' && daily && <DailyView d={daily} dark={dark} />}
         {!loading && !error && tab === 'data' && current && <DataView c={current} hourly={hourly} daily={daily} dark={dark} />}
@@ -628,72 +625,28 @@ function MetricTile({ icon, label, value, sub, dark, accent = false }: { icon: s
   );
 }
 
-// ─── Rainfall Bar Chart ────────────────────────────────────────────────────────
-interface PrecipData {
-  pastHours: HourlyEntry[] | null;
-  pastHistoryQpf: number | null;
-  forecastHours: HourlyEntry[] | null;
-}
-
-function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: boolean }) {
-  if (!precip) return null;
-
-  const PAST_COLOR = dark ? '#5b9bf5' : '#1a73e8';
-  const FUTURE_COLOR = dark ? '#8ab4f8' : '#4285f4';
-
-  // Past hourly (probability %)
-  const pastData = precip.pastHours?.map((h) => ({
+// ─── Rainfall Bar Chart (forecast only) ─────────────────────────────────────
+function RainfallChart({ hourly, dark }: { hourly?: HourlyData | null; dark: boolean }) {
+  const data = hourly?.forecastHours?.slice(0, 24).map(h => ({
     time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    value: h.precipitation?.probability?.percent ?? 0,
-    unit: '%',
-    type: 'past' as const,
-  })).reverse() ?? [];
-
-  // Forecast hourly (probability %)
-  const forecastData = precip.forecastHours?.map((h) => ({
-    time: new Date(h.interval.startTime).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    value: h.precipitation?.probability?.percent ?? 0,
-    unit: '%',
-    type: 'future' as const,
+    precip: h.precipitation?.probability?.percent ?? 0,
   })) ?? [];
 
-  // Aggregate past 24h bar (mm) — only when no hourly past data
-  const aggregateBar = (precip.pastHistoryQpf != null && pastData.length === 0)
-    ? [{ time: '−24h', value: precip.pastHistoryQpf, unit: 'mm', type: 'past' as const }]
-    : [];
+  if (!data.length) return null;
 
-  const allData = [...aggregateBar, ...pastData, ...forecastData];
-
-  if (!allData.length) return null;
-
-  // Y-axis: if any mm present, show mm; otherwise %
-  const hasMm = allData.some(d => d.unit === 'mm');
-  const maxVal = Math.max(...allData.map(d => d.value), 10);
-  const yDomain: [number, number] = [0, Math.ceil(maxVal / (hasMm ? 5 : 20)) * (hasMm ? 5 : 20)];
-  const yTickFormatter = (v: number) => hasMm ? `${v}mm` : `${v}%`;
+  const maxVal = Math.max(...data.map(d => d.precip), 10);
 
   return (
     <div className={`${gCard(dark, 'p-5')}`}>
       <div className="flex items-center gap-2 mb-1">
         <span className="text-base">🌧️</span>
         <span className="text-[10px] font-medium text-[#5f6368] dark:text-[#9aa0a6] uppercase tracking-wider">
-          Sademäärä 48h (historia + ennuste)
+          Sade (%) seuraavat 24h
         </span>
       </div>
-      <div className="flex items-center gap-3 mb-3">
-        <p className="text-[9px] text-[#9aa0a6]">
-          {aggregateBar.length
-            ? 'Vasemmalla menneen 24h yhteissumma (mm) · Oikealla ennuste (%-todennäköisyys)'
-            : 'Vasemmalla mennyt 24h tunneittain · Oikealla ennuste'}
-        </p>
-        <div className="flex items-center gap-1.5 ml-auto text-[9px]">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-[2px] bg-[#1a73e8] dark:bg-[#5b9bf5] inline-block" /> Mennyt</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-[2px] bg-[#4285f4] dark:bg-[#8ab4f8] inline-block" /> Ennuste</span>
-        </div>
-      </div>
 
-      <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={allData} margin={{ top: 2, right: 2, bottom: 0, left: -28 }} barCategoryGap="15%">
+      <ResponsiveContainer width="100%" height={120}>
+        <BarChart data={data} margin={{ top: 2, right: 2, bottom: 0, left: -28 }} barCategoryGap="20%">
           <CartesianGrid
             strokeDasharray="3 3"
             vertical={false}
@@ -705,14 +658,14 @@ function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: bool
             tick={{ fontSize: 8, fill: dark ? '#9aa0a6' : '#5f6368' }}
             tickLine={false}
             axisLine={false}
-            interval={aggregateBar.length ? 5 : 3}
+            interval={3}
           />
           <YAxis
-            domain={yDomain}
+            domain={[0, 100]}
             tick={{ fontSize: 8, fill: dark ? '#9aa0a6' : '#5f6368' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={yTickFormatter}
+            tickFormatter={v => `${v}%`}
           />
           <Tooltip
             contentStyle={{
@@ -724,20 +677,14 @@ function RainfallChart({ precip, dark }: { precip: PrecipData | null; dark: bool
               color: dark ? '#f1f3f4' : '#202124',
             }}
             labelStyle={{ color: dark ? '#9aa0a6' : '#5f6368', fontSize: '10px' }}
-            formatter={(v: any, _: any, p: any) => {
-              const d = p.payload;
-              const label = d.type === 'past' ? 'Mennyt' : 'Ennuste';
-              return [`${v}${d.unit}`, label];
-            }}
+            formatter={(v: any) => [`${v}%`, 'Sade']}
           />
-          <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={16}>
-            {allData.map((entry, index) => (
-              <Cell
-                key={`cell-${index}`}
-                fill={entry.type === 'past' ? PAST_COLOR : FUTURE_COLOR}
-              />
-            ))}
-          </Bar>
+          <Bar
+            dataKey="precip"
+            radius={[3, 3, 0, 0]}
+            maxBarSize={18}
+            fill={dark ? '#8ab4f8' : '#4285f4'}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -750,7 +697,7 @@ function Divider({ dark }: { dark: boolean }) {
 }
 
 // ─── Current View ─────────────────────────────────────────────────────────────
-function CurrentView({ c, dark, hourly, precip }: { c: CurrentData; dark: boolean; hourly?: HourlyData | null; precip: any }) {
+function CurrentView({ c, dark, hourly }: { c: CurrentData; dark: boolean; hourly?: HourlyData | null }) {
   const rainCur = c.precipitation || {};
   const hist = c.currentConditionsHistory;
   const uvPct = Math.min((c.uvIndex ?? 0) / 11 * 100, 100);
@@ -806,7 +753,7 @@ function CurrentView({ c, dark, hourly, precip }: { c: CurrentData; dark: boolea
       </div>
 
       {/* 24h Rainfall Bar Chart */}
-      {precip && <RainfallChart precip={precip} dark={dark} />}
+      {hourly && <RainfallChart hourly={hourly} dark={dark} />}
 
       {/* 24h Changes */}
       {hist && (
